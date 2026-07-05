@@ -48,3 +48,42 @@ RUN apt-get update && \
 USER aoc
 
 CMD ["/bin/bash"]
+
+
+FROM common_pkg_provider AS verilator_provider
+
+USER root
+
+ARG VERILATOR_VERSION=stable
+ARG VERILATOR_JOBS=2
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        autoconf \
+        flex \
+        bison \
+        help2man \
+        perl \
+        libfl-dev \
+        zlib1g-dev \
+        liblz4-dev \
+        ccache && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp
+
+RUN git clone --depth 1 --branch ${VERILATOR_VERSION} https://github.com/verilator/verilator.git /tmp/verilator && \
+    cd /tmp/verilator && \
+    autoconf && \
+    ./configure && \
+    make -j${VERILATOR_JOBS} && \
+    make install && \
+    verilator --version && \
+    rm -rf /tmp/verilator
+
+WORKDIR /workspace
+
+USER aoc
+
+CMD ["/bin/bash"]
