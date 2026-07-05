@@ -302,30 +302,56 @@ TARGET="release"
 代表預設會 build `release` stage，image 名稱是 `aoc2026-env:latest`，container 名稱是 `aoc2026-env`。
 
 ---
+## Customized Command Line Arguments
 
-### 參數解析
+為了讓 Docker 環境更有彈性，本專案在 `docker.sh` 中加入 CLI 參數，讓使用者可以自行指定 image、container、使用者、hostname，以及要掛載進 container 的資料夾。
 
-`docker.sh` 使用 `while` 和 `case` 解析 command-line options，例如：
+支援的參數如下：
 
 ```bash
---image-name
---cont-name
---username
---hostname
---mount
---dockerfile
---target
-```
+--image-name   指定 Docker image 名稱，預設為 aoc2026-env:latest
+--cont-name    指定 Docker container 名稱，預設為 aoc2026-env
+--username     指定 container 內執行的使用者，預設為 aoc
+--hostname     指定 container hostname，預設為 aoc2026
+--mount        額外掛載本機資料夾到 container 的 /workspace/<資料夾名稱>
+--dockerfile   指定 Dockerfile 路徑，預設為 Dockerfile
+--target       指定 docker build 的 target stage，預設為 release
+````
 
-所以可以用以下方式改變預設設定：
+範例：
 
 ```bash
 ./docker.sh run \
     --image-name aoc2026-env:latest \
     --cont-name aoc2026-test \
     --username aoc \
-    --hostname aoc2026
+    --hostname aoc2026 \
+    --mount /c/Users/angelliu.LAPTOP-3NTJHQPG/Desktop
 ```
+
+這樣執行時，script 會使用指定的 image name 和 container name 建立 container，並把本機的 Desktop 資料夾額外 bind mount 到 container 裡的：
+
+```text
+/workspace/Desktop
+```
+
+此外，`docker.sh run` 也會自動判斷 container 狀態：
+
+```text
+container 不存在 → docker run 建立並進入 container
+container 已停止 → docker start 後 docker exec 進入
+container 執行中 → docker exec 直接進入
+container paused → docker unpause 後 docker exec 進入
+```
+
+因此使用者只需要執行：
+
+```bash
+./docker.sh run
+```
+
+就可以進入開發環境，不需要自己手動判斷 image 或 container 是否已存在。
+
 
 ---
 
