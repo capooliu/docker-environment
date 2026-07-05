@@ -439,3 +439,13 @@ eman help
 | Verilator 是否能跑 Lab 0 範例 | `eman verilator-example` |
 | Verilator 版本切換 | `eman change-verilator <VERSION>` |
 
+# 7. Docker Hub Image
+
+本環境已上傳至 Docker Hub：
+
+```bash
+docker pull capooliu0424/docker-environment:latest
+
+使用方式：
+
+docker run -it --rm capooliu0424/docker-environment:latest /bin/bash
