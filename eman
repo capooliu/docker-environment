@@ -30,21 +30,28 @@ Commands:
   change-verilator <VERSION>   Switch default Verilator version.
                                If the version is not installed, install it under:
                                ~/.local/verilator/<VERSION>
-
-Examples:
-  eman help
-  eman c-compiler-version
-  eman c-compiler-example
-  eman check-verilator
-  eman verilator-example
-  eman change-verilator stable
-  eman change-verilator v5.034
 HELP
+}
+
+c_compiler_version() {
+    echo "== GCC =="
+    gcc --version | head -n 1
+    echo
+
+    echo "== G++ =="
+    g++ --version | head -n 1
+    echo
+
+    echo "== Make =="
+    make --version | head -n 1
 }
 
 case "$COMMAND" in
     help|-h|--help)
         help
+        ;;
+    c-compiler-version)
+        c_compiler_version
         ;;
     *)
         echo "[error] Unknown command: $COMMAND"
