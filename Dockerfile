@@ -25,3 +25,26 @@ WORKDIR /workspace
 USER ${USERNAME}
 
 CMD ["/bin/bash"]
+
+
+FROM base AS common_pkg_provider
+
+USER root
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        vim \
+        git \
+        curl \
+        wget \
+        ca-certificates \
+        build-essential \
+        python3 \
+        python3-pip && \
+    ln -sf /usr/bin/python3 /usr/bin/python && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+USER aoc
+
+CMD ["/bin/bash"]
