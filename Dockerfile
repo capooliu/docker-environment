@@ -139,3 +139,14 @@ WORKDIR /workspace
 USER aoc
 
 CMD ["/bin/bash"]
+
+
+FROM systemc_provider AS release
+
+ARG USERNAME=aoc
+
+WORKDIR /workspace
+
+USER ${USERNAME}
+
+CMD ["/bin/bash"]
