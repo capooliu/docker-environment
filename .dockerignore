@@ -1,0 +1,30 @@
+.git
+.gitignore
+
+# build output
+build/
+obj_dir/
+*.o
+*.out
+*.exe
+
+# simulation output
+*.vcd
+*.fst
+*.fsdb
+waveform/
+
+# logs and temp
+*.log
+tmp/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
