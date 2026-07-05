@@ -38,6 +38,7 @@ RUN apt-get update && \
         curl \
         wget \
         ca-certificates \
+        openssh-client \
         build-essential \
         python3 \
         python3-pip && \

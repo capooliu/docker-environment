@@ -6,6 +6,13 @@ if [[ $# -gt 0 ]]; then
     shift
 fi
 
+LAB0_REPO="${EMAN_LAB0_REPO:-ssh://git@gitlab.aislab.ee.ncku.edu.tw:3175/aislab-internal/course/aoc/aoc2026/lab-0-tutorial.git}"
+EMAN_CACHE_DIR="${EMAN_CACHE_DIR:-${HOME}/.cache/eman}"
+LAB0_DIR="${EMAN_LAB0_DIR:-${EMAN_CACHE_DIR}/lab-0-tutorial}"
+
+C_EXAMPLE_DIR="${LAB0_DIR}/c_cpp/arrays/multidim_array"
+VERILOG_EXAMPLE_DIR="${LAB0_DIR}/verilog"
+
 help() {
     cat <<'HELP'
 eman - Environment MANager
@@ -22,15 +29,51 @@ Commands:
   help                         Show this help message
 
   c-compiler-version           Print gcc, g++, and make versions
-  c-compiler-example           Compile and run a C example
+  c-compiler-example           Clone/update Lab 0 repo and run C example
 
-  check-verilator              Print the current Verilator path and version
-  verilator-example            Compile and run a Verilator example
+  check-verilator              Print current Verilator path and version
+  verilator-example            Clone/update Lab 0 repo and run Verilog example
 
-  change-verilator <VERSION>   Switch default Verilator version.
-                               If the version is not installed, install it under:
-                               ~/.local/verilator/<VERSION>
+  change-verilator <VERSION>   Switch default Verilator version
+
+Environment variables:
+  EMAN_LAB0_REPO               Override Lab 0 tutorial repo URL
+  EMAN_LAB0_DIR                Override Lab 0 tutorial repo directory
+  EMAN_CACHE_DIR               Override eman cache directory
+
+Examples:
+  eman help
+  eman c-compiler-version
+  eman c-compiler-example
+  eman check-verilator
+  eman verilator-example
 HELP
+}
+
+clone_or_update_lab0() {
+    mkdir -p "${EMAN_CACHE_DIR}"
+
+    if [[ ! -d "${LAB0_DIR}/.git" ]]; then
+        echo "[info] Clone Lab 0 tutorial repo"
+        echo "[info] Repo: ${LAB0_REPO}"
+        echo "[info] Dir : ${LAB0_DIR}"
+        git clone "${LAB0_REPO}" "${LAB0_DIR}"
+    else
+        echo "[info] Update Lab 0 tutorial repo"
+        echo "[info] Dir: ${LAB0_DIR}"
+        git -C "${LAB0_DIR}" fetch --all --prune
+
+        local default_branch
+        default_branch="$(git -C "${LAB0_DIR}" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@refs/remotes/origin/@@' || true)"
+
+        if [[ -z "${default_branch}" ]]; then
+            default_branch="main"
+        fi
+
+        git -C "${LAB0_DIR}" reset --hard "origin/${default_branch}" || git -C "${LAB0_DIR}" pull --ff-only
+    fi
+
+    echo "[info] Lab 0 commit: $(git -C "${LAB0_DIR}" rev-parse --short HEAD)"
 }
 
 c_compiler_version() {
@@ -46,12 +89,98 @@ c_compiler_version() {
     make --version | head -n 1
 }
 
+c_compiler_example() {
+    clone_or_update_lab0
+    echo
+
+    if [[ ! -d "${C_EXAMPLE_DIR}" ]]; then
+        echo "[error] C example directory not found:"
+        echo "        ${C_EXAMPLE_DIR}"
+        exit 1
+    fi
+
+    echo "[info] Run C example"
+    echo "[info] Dir: ${C_EXAMPLE_DIR}"
+
+    make -C "${C_EXAMPLE_DIR}" clean >/dev/null 2>&1 || true
+    make -C "${C_EXAMPLE_DIR}"
+    make -C "${C_EXAMPLE_DIR}" run
+
+    echo
+    echo "[success] C compiler example finished successfully"
+}
+
+check_verilator() {
+    echo "== Verilator =="
+    if ! command -v verilator >/dev/null 2>&1; then
+        echo "[error] verilator not found in PATH"
+        exit 1
+    fi
+
+    echo "Path: $(command -v verilator)"
+    echo "Version: $(verilator --version)"
+}
+
+verilator_example() {
+    check_verilator
+    echo
+
+    clone_or_update_lab0
+    echo
+
+    if [[ ! -d "${VERILOG_EXAMPLE_DIR}" ]]; then
+        echo "[error] Verilog example directory not found:"
+        echo "        ${VERILOG_EXAMPLE_DIR}"
+        exit 1
+    fi
+
+    if [[ ! -f "${VERILOG_EXAMPLE_DIR}/Makefile" ]]; then
+        echo "[error] Makefile not found:"
+        echo "        ${VERILOG_EXAMPLE_DIR}/Makefile"
+        exit 1
+    fi
+
+    echo "[info] Run Verilator example"
+    echo "[info] Dir: ${VERILOG_EXAMPLE_DIR}"
+
+    make -C "${VERILOG_EXAMPLE_DIR}" clean >/dev/null 2>&1 || true
+    make -C "${VERILOG_EXAMPLE_DIR}"
+
+    echo
+    echo "[success] Verilator example finished successfully"
+}
+
+change_verilator() {
+    local version="${1:-}"
+
+    if [[ -z "${version}" ]]; then
+        echo "[error] Missing VERSION"
+        echo "Usage: eman change-verilator <VERSION>"
+        exit 1
+    fi
+
+    echo "[info] Requested Verilator version: ${version}"
+    echo "[info] This command will be implemented in the next step."
+}
+
 case "$COMMAND" in
     help|-h|--help)
         help
         ;;
     c-compiler-version)
         c_compiler_version
+        ;;
+    c-compiler-example)
+        c_compiler_example
+        ;;
+    check-verilator)
+        check_verilator
+        ;;
+    verilator-example)
+        verilator_example
+        ;;
+    change-verilator)
+        change_verilator "$@"
         ;;
     *)
         echo "[error] Unknown command: $COMMAND"
