@@ -87,3 +87,55 @@ WORKDIR /workspace
 USER aoc
 
 CMD ["/bin/bash"]
+
+
+FROM verilator_provider AS systemc_provider
+
+USER root
+
+ARG SYSTEMC_VERSION=2.3.4
+ARG SYSTEMC_JOBS=2
+
+ENV SYSTEMC_HOME=/opt/systemc
+ENV SYSTEMC_CXXFLAGS="-I/opt/systemc/include"
+ENV SYSTEMC_LDFLAGS="-L/opt/systemc/lib -lsystemc -Wl,-rpath,/opt/systemc/lib -pthread"
+ENV LD_LIBRARY_PATH="/opt/systemc/lib"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends cmake && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp
+
+RUN git clone https://github.com/accellera-official/systemc.git /tmp/systemc && \
+    cd /tmp/systemc && \
+    git checkout ${SYSTEMC_VERSION} && \
+    cmake -S . -B build \
+        -DCMAKE_INSTALL_PREFIX=/opt/systemc-${SYSTEMC_VERSION} \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_STANDARD=17 \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DBUILD_SHARED_LIBS=ON && \
+    cmake --build build --parallel ${SYSTEMC_JOBS} && \
+    cmake --install build && \
+    ln -sfn /opt/systemc-${SYSTEMC_VERSION} /opt/systemc && \
+    printf '%s\n' \
+        '#include <systemc>' \
+        '#include <iostream>' \
+        '' \
+        'int sc_main(int argc, char* argv[]) {' \
+        '    std::cout << sc_core::sc_version() << std::endl;' \
+        '    return 0;' \
+        '}' \
+        > /tmp/systemc_test.cpp && \
+    g++ ${SYSTEMC_CXXFLAGS} /tmp/systemc_test.cpp ${SYSTEMC_LDFLAGS} -o /tmp/systemc_test && \
+    /tmp/systemc_test && \
+    rm -rf /tmp/systemc /tmp/systemc_test.cpp /tmp/systemc_test
+
+WORKDIR /workspace
+
+USER aoc
+
+CMD ["/bin/bash"]
