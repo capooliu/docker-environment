@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+COMMAND="${1:-help}"
+if [[ $# -gt 0 ]]; then
+    shift
+fi
+
+help() {
+    cat <<'HELP'
+eman - Environment MANager
+
+Usage:
+  eman help
+  eman c-compiler-version
+  eman c-compiler-example
+  eman check-verilator
+  eman verilator-example
+  eman change-verilator <VERSION>
+
+Commands:
+  help                         Show this help message
+
+  c-compiler-version           Print gcc, g++, and make versions
+  c-compiler-example           Compile and run a C example
+
+  check-verilator              Print the current Verilator path and version
+  verilator-example            Compile and run a Verilator example
+
+  change-verilator <VERSION>   Switch default Verilator version.
+                               If the version is not installed, install it under:
+                               ~/.local/verilator/<VERSION>
+
+Examples:
+  eman help
+  eman c-compiler-version
+  eman c-compiler-example
+  eman check-verilator
+  eman verilator-example
+  eman change-verilator stable
+  eman change-verilator v5.034
+HELP
+}
+
+case "$COMMAND" in
+    help|-h|--help)
+        help
+        ;;
+    *)
+        echo "[error] Unknown command: $COMMAND"
+        echo
+        help
+        exit 1
+        ;;
+esac

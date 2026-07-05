@@ -145,6 +145,18 @@ FROM systemc_provider AS release
 
 ARG USERNAME=aoc
 
+ENV PATH="/home/${USERNAME}/.local/bin:${PATH}"
+
+USER root
+
+RUN mkdir -p /home/${USERNAME}/.local/bin \
+    /home/${USERNAME}/.local/verilator && \
+    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.local
+
+COPY eman /usr/local/bin/eman
+
+RUN chmod 755 /usr/local/bin/eman
+
 WORKDIR /workspace
 
 USER ${USERNAME}
