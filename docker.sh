@@ -145,9 +145,25 @@ container_status() {
     fi
 }
 
+image_exists() {
+    docker image inspect "$IMAGE_NAME" >/dev/null 2>&1
+}
+
 build_image() {
-    echo "[info] Building image: $IMAGE_NAME"
-    docker_cmd build -t "$IMAGE_NAME" -f "$DOCKERFILE" --target "$TARGET" .
+    if image_exists; then
+        echo "[info] Docker image already exists: ${IMAGE_NAME}"
+        echo "[info] Skip build to avoid overwriting the existing image."
+        echo
+        echo "[info] If you want to remove the image manually, run:"
+        echo "       docker image rm ${IMAGE_NAME}"
+        echo
+        echo "[info] If you want to rebuild the environment, run:"
+        echo "       ./docker.sh rebuild"
+        return 0
+    fi
+
+    echo "[info] Build Docker image: ${IMAGE_NAME}"
+    docker build -t "$IMAGE_NAME" -f "$DOCKERFILE" --target "$TARGET" .
 }
 
 run_container() {

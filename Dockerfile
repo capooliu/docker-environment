@@ -58,6 +58,9 @@ USER root
 ARG VERILATOR_VERSION=stable
 ARG VERILATOR_JOBS=2
 
+ENV VERILATOR_HOME=/opt/verilator
+ENV PATH="${VERILATOR_HOME}/bin:${PATH}"
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         autoconf \
@@ -77,20 +80,19 @@ WORKDIR /tmp
 RUN git clone --depth 1 --branch ${VERILATOR_VERSION} https://github.com/verilator/verilator.git /tmp/verilator && \
     cd /tmp/verilator && \
     autoconf && \
-    ./configure && \
+    ./configure --prefix=${VERILATOR_HOME} && \
     make -j${VERILATOR_JOBS} && \
     make install && \
-    verilator --version && \
+    ${VERILATOR_HOME}/bin/verilator --version && \
     rm -rf /tmp/verilator
 
 WORKDIR /workspace
-
 USER aoc
 
 CMD ["/bin/bash"]
 
 
-FROM verilator_provider AS systemc_provider
+FROM common_pkg_provider AS systemc_provider
 
 USER root
 
@@ -113,7 +115,7 @@ RUN git clone https://github.com/accellera-official/systemc.git /tmp/systemc && 
     cd /tmp/systemc && \
     git checkout ${SYSTEMC_VERSION} && \
     cmake -S . -B build \
-        -DCMAKE_INSTALL_PREFIX=/opt/systemc-${SYSTEMC_VERSION} \
+        -DCMAKE_INSTALL_PREFIX=${SYSTEMC_HOME} \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_STANDARD=17 \
         -DCMAKE_INSTALL_LIBDIR=lib \
@@ -121,7 +123,6 @@ RUN git clone https://github.com/accellera-official/systemc.git /tmp/systemc && 
         -DBUILD_SHARED_LIBS=ON && \
     cmake --build build --parallel ${SYSTEMC_JOBS} && \
     cmake --install build && \
-    ln -sfn /opt/systemc-${SYSTEMC_VERSION} /opt/systemc && \
     printf '%s\n' \
         '#include <systemc>' \
         '#include <iostream>' \
@@ -136,27 +137,55 @@ RUN git clone https://github.com/accellera-official/systemc.git /tmp/systemc && 
     rm -rf /tmp/systemc /tmp/systemc_test.cpp /tmp/systemc_test
 
 WORKDIR /workspace
-
 USER aoc
 
 CMD ["/bin/bash"]
 
 
-FROM systemc_provider AS release
+FROM common_pkg_provider AS release
 
 ARG USERNAME=aoc
 
-ENV PATH="/home/${USERNAME}/.local/bin:${PATH}"
+ENV VERILATOR_HOME=/opt/verilator
+ENV SYSTEMC_HOME=/opt/systemc
+ENV PATH="/opt/verilator/bin:/home/${USERNAME}/.local/bin:${PATH}"
+ENV SYSTEMC_CXXFLAGS="-I/opt/systemc/include"
+ENV SYSTEMC_LDFLAGS="-L/opt/systemc/lib -lsystemc -Wl,-rpath,/opt/systemc/lib -pthread"
+ENV LD_LIBRARY_PATH="/opt/systemc/lib"
 
 USER root
 
-RUN mkdir -p /home/${USERNAME}/.local/bin \
-    /home/${USERNAME}/.local/verilator && \
-    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.local
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        perl \
+        libfl2 \
+        zlib1g \
+        liblz4-1 && \
+    mkdir -p /home/${USERNAME}/.local/bin \
+             /home/${USERNAME}/.local/verilator && \
+    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.local && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=verilator_provider /opt/verilator /opt/verilator
+COPY --from=systemc_provider /opt/systemc /opt/systemc
 
 COPY eman /usr/local/bin/eman
 
-RUN chmod 755 /usr/local/bin/eman
+RUN chmod 755 /usr/local/bin/eman && \
+    verilator --version && \
+    printf '%s\n' \
+        '#include <systemc>' \
+        '#include <iostream>' \
+        '' \
+        'int sc_main(int argc, char* argv[]) {' \
+        '    std::cout << sc_core::sc_version() << std::endl;' \
+        '    return 0;' \
+        '}' \
+        > /tmp/systemc_release_test.cpp && \
+    g++ ${SYSTEMC_CXXFLAGS} /tmp/systemc_release_test.cpp ${SYSTEMC_LDFLAGS} -o /tmp/systemc_release_test && \
+    /tmp/systemc_release_test && \
+    rm -f /tmp/systemc_release_test.cpp /tmp/systemc_release_test
 
 WORKDIR /workspace
 

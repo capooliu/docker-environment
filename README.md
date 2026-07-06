@@ -197,10 +197,190 @@ ssh://git@gitlab.aislab.ee.ncku.edu.tw:3175/aislab-internal/course/aoc/aoc2026/l
 
 
 ---
-
 # 4. Dockerfile 功能說明
 
-本專案使用 multi-stage build，把環境分成多個 stage：
+本專案使用 multi-stage build，把環境分成多個 stage。  
+架構如下：
+
+```text
+base
+└── common_pkg_provider
+    ├── verilator_provider
+    │   └── build Verilator 到 /opt/verilator
+    │
+    ├── systemc_provider
+    │   └── build SystemC 到 /opt/systemc
+    │
+    └── release
+        ├── 繼承 common_pkg_provider 的一般開發工具
+        ├── COPY /opt/verilator from verilator_provider
+        └── COPY /opt/systemc from systemc_provider
+````
+
+每個 stage 負責不同工作，讓 Verilator 和 SystemC 的 build 過程彼此獨立，最後再由 `release` 組合成真正要給使用者使用的 image。
+
+---
+
+## 4.1 `base`
+
+`base` 是最底層環境，負責建立 Ubuntu 基礎設定。
+
+| 功能         | 說明                                              |
+| ---------- | ----------------------------------------------- |
+| Base image | 使用 `ubuntu:26.04`                               |
+| Timezone   | 設定為 `Asia/Taipei`                               |
+| apt mode   | 使用 `DEBIAN_FRONTEND=noninteractive`，避免安裝時卡在互動輸入 |
+| User       | 建立 non-root user：`aoc`                          |
+| UID/GID    | 使用固定 UID/GID：`1001`                             |
+| Workdir    | 建立並使用 `/workspace`                              |
+
+使用 non-root user 的原因是避免 container 預設用 root 執行，減少權限與安全問題。
+固定 UID/GID 則可以降低 bind mount 本機資料夾時產生權限混亂的機率。
+
+---
+
+## 4.2 `common_pkg_provider`
+
+`common_pkg_provider` 從 `base` 繼承，負責安裝一般開發工具。
+
+| 工具                       | 用途                                      |
+| ------------------------ | --------------------------------------- |
+| `vim`                    | 編輯文字檔                                   |
+| `git`                    | clone / pull / 版本控制                     |
+| `curl`, `wget`           | 下載檔案                                    |
+| `ca-certificates`        | 支援 HTTPS 憑證                             |
+| `build-essential`        | 提供 gcc、g++、make 等工具                     |
+| `python3`, `python3-pip` | Python 環境                               |
+| `openssh-client`         | 在 container 內使用 SSH / clone GitLab repo |
+
+這個 stage 的重點是提供後續所有 stage 都會用到的基本能力。
+Verilator、SystemC 和 final release image 都會從 `common_pkg_provider` 開始，但它們各自負責不同事情。
+
+---
+
+## 4.3 `verilator_provider`
+
+`verilator_provider` 從 `common_pkg_provider` 繼承，專門負責從 source code build Verilator。
+
+Verilator 是自己從 source 編譯出來的第三方工具，安裝位置為：
+
+```text
+/opt/verilator
+```
+
+主要功能：
+
+| 功能                    | 說明                                                              |
+| --------------------- | --------------------------------------------------------------- |
+| 安裝 build dependencies | 安裝 `autoconf`、`flex`、`bison`、`help2man` 等 Verilator build 需要的工具 |
+| 下載 source code        | 從 Verilator GitHub repo clone                                   |
+| 編譯安裝                  | 執行 `autoconf`、`./configure`、`make`、`make install`               |
+| 安裝位置                  | 安裝到 `/opt/verilator`                                            |
+| 驗證                    | 用 `/opt/verilator/bin/verilator --version` 確認安裝成功               |
+
+相關 build 參數：
+
+| 參數                  | 用途                      |
+| ------------------- | ----------------------- |
+| `VERILATOR_VERSION` | 指定 Verilator 版本或 branch |
+| `VERILATOR_JOBS`    | 指定 `make -j` 平行編譯數量     |
+
+這個 stage 裡的 Verilator build tools 只用來編譯 Verilator，不會直接繼承到 SystemC stage。
+
+---
+
+## 4.4 `systemc_provider`
+
+`systemc_provider` 從 `common_pkg_provider` 繼承，專門負責 build SystemC 2.3.4。
+
+SystemC 是完整第三方 library，安裝位置為：
+
+```text
+/opt/systemc
+```
+
+主要功能：
+
+| 功能         | 說明                                     |
+| ---------- | -------------------------------------- |
+| 安裝 CMake   | 用來 build SystemC                       |
+| 下載 SystemC | clone Accellera SystemC source code    |
+| 指定版本       | checkout `2.3.4`                       |
+| 編譯安裝       | 使用 CMake configure / build / install   |
+| 安裝位置       | 安裝到 `/opt/systemc`                     |
+| 驗證         | 編譯最小 SystemC 程式，確認 include 和 link 設定正確 |
+
+SystemC 相關環境變數：
+
+| 變數                                                                                  | 用途                   |
+| ----------------------------------------------------------------------------------- | -------------------- |
+| `SYSTEMC_HOME=/opt/systemc`                                                         | SystemC 安裝位置         |
+| `SYSTEMC_CXXFLAGS=-I/opt/systemc/include`                                           | 編譯時 include header   |
+| `SYSTEMC_LDFLAGS=-L/opt/systemc/lib -lsystemc -Wl,-rpath,/opt/systemc/lib -pthread` | link SystemC library |
+| `LD_LIBRARY_PATH=/opt/systemc/lib`                                                  | 執行時尋找 shared library |
+
+編譯 SystemC 程式時可以使用：
+
+```bash
+g++ $SYSTEMC_CXXFLAGS test.cpp $SYSTEMC_LDFLAGS -o test
+./test
+```
+
+修改後 `systemc_provider` 不再繼承 `verilator_provider`，而是直接從 `common_pkg_provider` 開始。
+這樣 SystemC stage 不會攜帶 Verilator 的 build tools，例如 `autoconf`、`flex`、`bison`、`help2man` 等。
+
+---
+
+## 4.5 `release`
+
+`release` 是最後實際給使用者執行的 image stage。
+
+本專案修改後使用：
+
+```dockerfile
+FROM common_pkg_provider AS release
+```
+
+也就是讓 `release` 先繼承一般開發工具，再從其他 provider stage 複製真正需要的工具成果：
+
+```dockerfile
+COPY --from=verilator_provider /opt/verilator /opt/verilator
+COPY --from=systemc_provider /opt/systemc /opt/systemc
+```
+
+因此 final image 會包含：
+
+| 來源                    | 提供內容                                             |
+| --------------------- | ------------------------------------------------ |
+| `base`                | Ubuntu 基本設定、non-root user、timezone               |
+| `common_pkg_provider` | 一般開發工具，例如 git、gcc、make、python、ssh                |
+| `verilator_provider`  | `/opt/verilator`                                 |
+| `systemc_provider`    | `/opt/systemc`                                   |
+| `release`             | runtime dependencies、環境變數、`eman` frontend script |
+
+`release` 需要設定 Verilator 和 SystemC 的環境變數，例如：
+
+```dockerfile
+ENV VERILATOR_HOME=/opt/verilator
+ENV SYSTEMC_HOME=/opt/systemc
+ENV PATH="/opt/verilator/bin:/home/${USERNAME}/.local/bin:${PATH}"
+ENV SYSTEMC_CXXFLAGS="-I/opt/systemc/include"
+ENV SYSTEMC_LDFLAGS="-L/opt/systemc/lib -lsystemc -Wl,-rpath,/opt/systemc/lib -pthread"
+ENV LD_LIBRARY_PATH="/opt/systemc/lib"
+```
+
+這樣使用者進入 container 後可以直接使用：
+
+```bash
+verilator --version
+eman help
+```
+
+---
+
+## 4.6 為什麼 release 不再直接繼承 `systemc_provider`
+
+原本架構是：
 
 ```text
 base
@@ -210,124 +390,41 @@ base
 → release
 ```
 
-每個 stage 負責不同工作，方便維護與除錯。
+這種寫法會讓 `systemc_provider` 繼承 Verilator 的 build tools，例如：
 
----
-
-## 4.1 `base`
-
-`base` 是最底層環境，負責建立 Ubuntu 基礎設定。
-
-| 功能 | 說明 |
-|---|---|
-| Base image | 使用 `ubuntu:26.04` |
-| Timezone | 設定為 `Asia/Taipei` |
-| apt mode | 使用 `DEBIAN_FRONTEND=noninteractive` 避免安裝時卡在互動輸入 |
-| User | 建立 non-root user：`aoc` |
-| UID/GID | 使用固定 UID/GID：`1001` |
-| Workdir | 建立並使用 `/workspace` |
-
-使用 non-root user 的原因是避免 container 預設用 root 執行，減少權限與安全問題。
-
----
-
-## 4.2 `common_pkg_provider`
-
-`common_pkg_provider` 從 `base` 繼承，負責安裝常用開發工具。
-
-| 工具 | 用途 |
-|---|---|
-| `vim` | 編輯文字檔 |
-| `git` | clone / pull / 版本控制 |
-| `curl`, `wget` | 下載檔案 |
-| `ca-certificates` | 支援 HTTPS 憑證 |
-| `build-essential` | 提供 gcc、g++、make 等工具 |
-| `python3`, `python3-pip` | Python 環境 |
-| `openssh-client` | 在 container 內使用 SSH / clone GitLab repo |
-
-這個 stage 的重點是準備後續 build Verilator、SystemC 和執行測試所需的基本工具。
-
----
-
-## 4.3 `verilator_provider`
-
-`verilator_provider` 從 `common_pkg_provider` 繼承，負責從 source code build Verilator。
-
-主要功能：
-
-| 功能 | 說明 |
-|---|---|
-| 安裝 build dependencies | 安裝 `autoconf`、`flex`、`bison`、`help2man` 等工具 |
-| 下載 source code | 從 Verilator GitHub repo clone |
-| 編譯安裝 | 執行 `autoconf`、`./configure`、`make`、`make install` |
-| 驗證 | 用 `verilator --version` 確認安裝成功 |
-
-相關 build 參數：
-
-| 參數 | 用途 |
-|---|---|
-| `VERILATOR_VERSION` | 指定 Verilator 版本或 branch |
-| `VERILATOR_JOBS` | 指定 `make -j` 平行編譯數量 |
-
----
-
-## 4.4 `systemc_provider`
-
-`systemc_provider` 從 `verilator_provider` 繼承，負責 build SystemC 2.3.4。
-
-主要功能：
-
-| 功能 | 說明 |
-|---|---|
-| 安裝 CMake | 用來 build SystemC |
-| 下載 SystemC | clone Accellera SystemC source code |
-| 指定版本 | checkout `2.3.4` |
-| 編譯安裝 | 使用 CMake configure / build / install |
-| 建立 symbolic link | 讓 `/opt/systemc` 指向目前版本 |
-| 驗證 | 編譯最小 SystemC 程式確認 include 和 link 設定正確 |
-
-SystemC 相關環境變數：
-
-| 變數 | 用途 |
-|---|---|
-| `SYSTEMC_HOME=/opt/systemc` | SystemC 安裝位置 |
-| `SYSTEMC_CXXFLAGS=-I/opt/systemc/include` | 編譯時 include header |
-| `SYSTEMC_LDFLAGS=-L/opt/systemc/lib -lsystemc -Wl,-rpath,/opt/systemc/lib -pthread` | link SystemC library |
-| `LD_LIBRARY_PATH=/opt/systemc/lib` | 執行時尋找 shared library |
-
-編譯 SystemC 程式時可以使用：
-
-```bash
-g++ $SYSTEMC_CXXFLAGS test.cpp $SYSTEMC_LDFLAGS -o test
-./test
+```text
+autoconf
+flex
+bison
+help2man
+libfl-dev
+zlib1g-dev
+liblz4-dev
+ccache
 ```
 
----
+但 SystemC 本身主要只需要 CMake，不需要 Verilator 的 build dependencies。
+因此新的架構把 Verilator 和 SystemC 拆成兩個獨立 provider：
 
-## 4.5 `release`
-
-`release` 是最後實際使用的 image stage。
-
-本專案使用：
-
-```dockerfile
-FROM systemc_provider AS release
+```text
+common_pkg_provider
+├── verilator_provider
+└── systemc_provider
 ```
 
-也就是讓 `release` 直接繼承 `systemc_provider`。
+最後再由 `release` 統一組合：
 
-因此 final image 會包含：
+```text
+release
+├── COPY /opt/verilator
+└── COPY /opt/systemc
+```
 
-| 來源 stage | 提供內容 |
-|---|---|
-| `base` | Ubuntu 基本設定、non-root user、timezone |
-| `common_pkg_provider` | 常用開發工具 |
-| `verilator_provider` | Verilator |
-| `systemc_provider` | SystemC |
+這樣可以讓每個 stage 的責任更清楚，也可以避免 SystemC stage 攜帶不必要的套件。
 
 ---
 
-## 4.6 為什麼 release 不直接 COPY 整個 `/usr`
+## 4.7 為什麼 release 不直接 COPY 整個 `/usr`
 
 `apt` 和 `pip` 安裝的內容通常會分散在：
 
@@ -348,14 +445,30 @@ COPY --from=common_pkg_provider /usr /usr
 
 可能造成：
 
-| 問題 | 原因 |
-|---|---|
-| image 變大 | 整個 `/usr` 會包含大量不一定需要的檔案 |
-| 覆蓋系統檔案 | 可能覆蓋 release stage 原本的系統內容 |
+| 問題          | 原因                                |
+| ----------- | --------------------------------- |
+| image 變大    | 整個 `/usr` 會包含大量不一定需要的檔案           |
+| 覆蓋系統檔案      | 可能覆蓋 release stage 原本的系統內容        |
 | 漏掉 metadata | apt package metadata 不一定只在 `/usr` |
-| 難以除錯 | 無法清楚知道哪些檔案來自哪個套件 |
+| 難以除錯        | 無法清楚知道哪些檔案來自哪個套件                  |
 
-因此本專案採用 stage 繼承，讓 final image 直接保留前面 stage 的安裝結果，而不是手動搬整個系統目錄。
+因此本專案採用：
+
+```text
+一般開發工具 → 用 FROM common_pkg_provider 繼承
+自己 source build 出來的工具 → 安裝到 /opt，再用 COPY --from 複製
+```
+
+也就是：
+
+```dockerfile
+FROM common_pkg_provider AS release
+
+COPY --from=verilator_provider /opt/verilator /opt/verilator
+COPY --from=systemc_provider /opt/systemc /opt/systemc
+```
+
+這樣 final image 可以保留必要工具，同時避免直接搬整個系統目錄。
 
 ---
 
@@ -365,20 +478,67 @@ COPY --from=common_pkg_provider /usr /usr
 
 主要功能：
 
-| 功能 | 說明 |
-|---|---|
-| Build image | 建立 `aoc2026-env:latest` |
-| Run container | 建立或進入 `aoc2026-env` |
-| Clean | 刪除 container 和 image |
-| Rebuild | 重新建立 image |
-| 狀態判斷 | 自動判斷 container 不存在、停止、執行中、paused |
-| Bind mount | 把本機 repo 掛到 `/workspace/project` |
-| CLI 參數 | 可自訂 image name、container name、username、hostname、mount path |
-| Windows Git Bash path 處理 | 避免 `/workspace/project`、`/bin/bash` 被轉成 Windows path |
+| 功能                       | 說明                                                         |
+| ------------------------ | ---------------------------------------------------------- |
+| Build image              | 建立 `aoc2026-env:latest`                                    |
+| Image exists check       | `build` 前檢查 image 是否已存在，若已存在則提示使用者刪除或 rebuild              |
+| Run container            | 建立或進入 `aoc2026-env`                                        |
+| Clean                    | 刪除 container 和 image                                       |
+| Rebuild                  | 重新建立 image                                                 |
+| 狀態判斷                     | 自動判斷 container 不存在、停止、執行中、paused                           |
+| Bind mount               | 把本機 repo 掛到 `/workspace/project`                           |
+| CLI 參數                   | 可自訂 image name、container name、username、hostname、mount path |
+| Windows Git Bash path 處理 | 避免 `/workspace/project`、`/bin/bash` 被轉成 Windows path       |
 
 ---
 
-## 5.1 Bind Mount
+## 5.1 `build` 的 image 檢查
+
+修改後 `./docker.sh build` 會先檢查 image 是否已經存在。
+
+| 狀況        | 行為                       |
+| --------- | ------------------------ |
+| image 不存在 | 正常執行 `docker build`      |
+| image 已存在 | 不直接覆蓋，印出提示訊息             |
+| 想重新建立     | 使用 `./docker.sh rebuild` |
+
+如果 image 已存在，會提示類似：
+
+```text
+[info] Docker image already exists: aoc2026-env:latest
+[info] Skip build to avoid overwriting the existing image.
+
+[info] If you want to remove the image manually, run:
+       docker image rm aoc2026-env:latest
+
+[info] If you want to rebuild the environment, run:
+       ./docker.sh rebuild
+```
+
+這樣可以避免使用者不小心用 `build` 覆蓋已經存在的 image。
+
+---
+
+## 5.2 `run` 的狀態判斷
+
+`docker.sh run` 會自動判斷 container 狀態，選擇正確操作。
+
+| Container 狀態     | docker.sh 的處理方式                          |
+| ---------------- | ---------------------------------------- |
+| container 不存在    | 使用 `docker run` 建立並進入 container          |
+| container 已停止    | 使用 `docker start` 啟動，再用 `docker exec` 進入 |
+| container 執行中    | 直接使用 `docker exec` 進入                    |
+| container paused | 使用 `docker unpause` 後再進入                 |
+
+因此平常不需要自己判斷要用 `docker run`、`docker start` 還是 `docker exec`，只要執行：
+
+```bash
+./docker.sh run
+```
+
+---
+
+## 5.3 Bind Mount
 
 `docker.sh run` 會把目前 repository 掛進 container：
 
@@ -388,9 +548,11 @@ COPY --from=common_pkg_provider /usr /usr
 
 這樣可以在 container 內編譯、測試，同時檔案仍然保留在本機 Git repo 中。
 
+如果使用 `--mount`，也可以額外掛載其他本機資料夾，例如 dataset、測試資料或 `.ssh` 資料夾。
+
 ---
 
-## 5.2 Windows Git Bash 處理
+## 5.4 Windows Git Bash 處理
 
 在 Windows Git Bash 中，Linux path 可能被自動轉成 Windows path。
 
