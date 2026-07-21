@@ -1,3 +1,8 @@
+ARG UV_VERSION=0.11.30
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv_provider
+
+
 FROM ubuntu:26.04 AS base
 
 ARG USERNAME=aoc
@@ -46,9 +51,37 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-USER aoc
+USER ${USERNAME}
 
 CMD ["/bin/bash"]
+
+
+FROM common_pkg_provider AS lab3_tools_provider
+
+ARG PRE_COMMIT_VERSION=4.6.0
+ARG RUFF_VERSION=0.15.14
+ARG PYTEST_VERSION=9.0.3
+
+ENV PATH=/opt/lab3-tools/bin:${PATH}
+
+USER root
+
+COPY --from=uv_provider /uv /uvx /usr/local/bin/
+
+RUN python3 -c 'import sys; assert sys.version_info >= (3, 11)' && \
+    uv venv --python python3 /opt/lab3-tools && \
+    uv pip install --python /opt/lab3-tools/bin/python \
+        pre-commit==${PRE_COMMIT_VERSION} \
+        ruff==${RUFF_VERSION} \
+        pytest==${PYTEST_VERSION} && \
+    uv cache clean && \
+    python3 --version && \
+    uv --version && \
+    pre-commit --version && \
+    ruff --version && \
+    pytest --version
+
+USER ${USERNAME}
 
 
 FROM common_pkg_provider AS verilator_provider
@@ -87,7 +120,7 @@ RUN git clone --depth 1 --branch ${VERILATOR_VERSION} https://github.com/verilat
     rm -rf /tmp/verilator
 
 WORKDIR /workspace
-USER aoc
+USER ${USERNAME}
 
 CMD ["/bin/bash"]
 
@@ -137,12 +170,12 @@ RUN git clone https://github.com/accellera-official/systemc.git /tmp/systemc && 
     rm -rf /tmp/systemc /tmp/systemc_test.cpp /tmp/systemc_test
 
 WORKDIR /workspace
-USER aoc
+USER ${USERNAME}
 
 CMD ["/bin/bash"]
 
 
-FROM common_pkg_provider AS release
+FROM lab3_tools_provider AS release
 
 ARG USERNAME=aoc
 

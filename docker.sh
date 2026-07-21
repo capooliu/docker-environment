@@ -13,6 +13,8 @@ fi
 IMAGE_NAME="aoc2026-env:latest"
 CONT_NAME="aoc2026-env"
 USERNAME="aoc"
+USER_UID="1001"
+USER_GID="1001"
 HOSTNAME="aoc2026"
 DOCKERFILE="Dockerfile"
 TARGET="release"
@@ -31,6 +33,8 @@ Options:
   --image-name NAME     Docker image name, default: aoc2026-env:latest
   --cont-name NAME      Docker container name, default: aoc2026-env
   --username NAME       Container user, default: aoc
+  --user-uid ID         Container user UID, default: 1001
+  --user-gid ID         Container user GID, default: 1001
   --hostname NAME       Container hostname, default: aoc2026
   --mount PATH          Bind mount extra host path into /workspace/<basename>
   --dockerfile FILE     Dockerfile path, default: Dockerfile
@@ -58,6 +62,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --username)
             USERNAME="$2"
+            shift 2
+            ;;
+        --user-uid)
+            USER_UID="$2"
+            shift 2
+            ;;
+        --user-gid)
+            USER_GID="$2"
             shift 2
             ;;
         --hostname)
@@ -145,10 +157,6 @@ container_status() {
     fi
 }
 
-image_exists() {
-    docker image inspect "$IMAGE_NAME" >/dev/null 2>&1
-}
-
 build_image() {
     if image_exists; then
         echo "[info] Docker image already exists: ${IMAGE_NAME}"
@@ -163,7 +171,14 @@ build_image() {
     fi
 
     echo "[info] Build Docker image: ${IMAGE_NAME}"
-    docker build -t "$IMAGE_NAME" -f "$DOCKERFILE" --target "$TARGET" .
+    docker build \
+        --build-arg "USERNAME=${USERNAME}" \
+        --build-arg "USER_UID=${USER_UID}" \
+        --build-arg "USER_GID=${USER_GID}" \
+        -t "$IMAGE_NAME" \
+        -f "$DOCKERFILE" \
+        --target "$TARGET" \
+        .
 }
 
 run_container() {
